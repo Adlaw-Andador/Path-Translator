@@ -1,1 +1,1 @@
-    print(current, next, theta)
+print("Exported to: ", pathToExports + "\\" + exportName)

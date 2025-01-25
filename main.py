@@ -3,132 +3,252 @@ import math
 import numpy as np
 import re
 import os
+import matplotlib.pyplot as plt
+import util
+from translator import PathTranslator
 
 #file name to translate
-fileName = "uwuwuwuwuw.txt"
+fileName = "kendricklamar.txt"
 #file name to export as
-exportName = "testTry.txt"
+exportName = "kendricklamarTest.txt"
+# export as degrees/radians
+exportThetaAsDeg = False
+# export as volts or inches per second, radians per second
+exportVoltageUnits = False
+MAX_VOLTAGES = 12
+MAX_LINEAR_SPEED = 456
+
+#dont touch
+exportFormat = True
 
 pathToPathFile = os.path.dirname(__file__) + "\\paths\\" + fileName
 pathToExports = os.path.dirname(__file__) + "\\exports\\" + exportName
 
 pathFile = open(pathToPathFile)
 path = []
+pointsFormatted = []
 controlPoints = []
-
-#co-pilot cuz im lazy
-def split_numbers(input_string):
-    numbers = input_string.split(", ")
     
-    grouped_numbers = []
+temporaryDTs = []
     
-    for i in range(0, len(numbers), 2):
-        grouped_string = f"{numbers[i]}, {numbers[i+1]}"
-        grouped_numbers.append(grouped_string)
-    
-    return grouped_numbers
+def calculatePathTime(points):
+    totalTime = 0
 
-#co-pilot again (really lazy)
-def calculateAngle(p1, p2):
-    dx = p2[0] - p1[0]
-    dy = p2[1] - p1[1]
-    angle = math.atan2(dx, dy)
-    #return math.degrees(angle)  # Convert radians to degrees if needed
-    return angle
+    for i in range(len(points) - 1):
 
-def sgn(num):
-    if (num >= 0):
-        return 1
-    else:
-        return -1
 
-def calculateCurvature(current, next, theta):
-    # find which side the point is on the tracking circle
-
-    #dist = math.hypot(next[0] - current[0], next[1] - current[1])
-
-    #if (dist == 0):
-    #    return -999
-
-    if (current[3] == 0): return -999
-    
-    if theta == 0.0:
-        side = sgn(next[1] - current[1])
-        x = math.fabs(next[1] - current[1])
-        d = math.hypot(next[0] - current[0], next[1] - current[1])
-    else:
-        side = sgn(math.sin(theta) * (next[0] - current[0]) - math.cos(theta) * (next[1] - current[1]))
-
-        a = -math.tan(theta)
-        c = math.tan(theta) * current[0] - current[1]
-        x = math.fabs(a * next[0] + next[1] + c) / math.sqrt(math.pow(a, 2) + 1)
-        d = math.hypot(next[0] - current[0], next[1] - current[1])
-
-    return side * ((2 * x) / math.pow(d, 2))
-
-def findFileIndex(lookup):
-    for num, line in enumerate(pathFile, 1):
-        if lookup in line:
-            return num
-
-def stringToCoords(coordinates, placeholder = True):
-    val = re.sub(r',', ' ', coordinates)
-    li = val.split(" ")
-    coordinates = []
-    for i in li:
-        if i == "":
-            pass
+        if (len(points[i]) > 5 or len(points[i + 1]) > 5):
+            pointsFormatted.insert(i, [totalTime, points[i][0], points[i][1], points[i][2], 0, 0])
+            print("sampha time: ", totalTime)
         else:
-            coordinates.append(float(i))
+            x1, y1, theta1, linearVelocity1, angularVelocity1 = points[i]
+            x2, y2, theta2, linearVelocity2, angularVelocity2 = points[i + 1]
 
-    if (placeholder == True):
-        coordinates.insert(2, -999) # theta placeholder, push velocity back
+            dx = x2 - x1
+            dy = y2 - y1
+            distance = math.sqrt(dx**2 + dy**2)
 
-    return coordinates
+            dTheta = (theta2 - theta1) % math.radians(360) # normalize angle
+
+            # linear interpolation, maybe find another method
+            averageLinearVelocity = (linearVelocity1 + linearVelocity2) / 2
+            averageAngularVelocity = (angularVelocity1 + angularVelocity2) / 2
+
+            #print(f"Segment {i} - Distance: {distance}, LinearVelocities: {linearVelocity1}, {linearVelocity2}, Delta Theta: {dTheta}, AngularVelocities: {angularVelocity1}, {angularVelocity2}")
+        # print(f"Segment {i} - dTheta: {dTheta}, AngularVelocities: {angularVelocity1}, {angularVelocity2}")
+
+            tLinear = distance / averageLinearVelocity
+            tAngular = dTheta / averageAngularVelocity
+
+            print(f"Segment {i} - dTheta: {dTheta}, avgAngular: {averageAngularVelocity}")
+            print(f"Segment {i} - tLinear: {tLinear}, tAngular: {tAngular}")
+
+            timeAtPoint = max(tLinear, tAngular) # to obey the laws of physics, the one that takes more time will be prioritized
+
+            print(timeAtPoint)
+            temporaryDTs.append(timeAtPoint)
+
+            totalTime += timeAtPoint
+
+            pointsFormatted.insert(i, [totalTime - timeAtPoint, x1, y1, theta1, linearVelocity1, angularVelocity1])
+    
+    print("Path time: ", totalTime)
+    #pprint("Path: ", pointsFormatted)
 
 def translate():
-
     for _, line in enumerate(pathFile, 1):
         striped = line.strip('\n')
-        if (striped == "endData"):
+        if (striped == "endData" or striped.find("#PATH.JERRYIO-DATA") != -1):
             break
-        path.append(stringToCoords(striped))
+        path.append(util.stringToCoords(striped))
 
     for _, line in enumerate(pathFile, 1):
         striped = line.strip('\n')
         if (striped.find("#PATH.JERRYIO-DATA") != -1): break
         if (striped.find(",") != -1):
-            for ctrlPnt in split_numbers(striped):
-                controlPoints.append(stringToCoords(ctrlPnt, False))
-    
+            for ctrlPnt in util.split_numbers(striped):
+                controlPoints.append(util.stringToCoords(ctrlPnt, False))
+
+temporaryLinears = []
+temporaryAngulars = []    
+
 def translateToRamsete():
     # calculate angle and change velocities to 12volt max
     for index in range(len(path) - 1):
-        angle = calculateAngle(path[index], path[index + 1])
+        angle = util.calculateAngle(path[index], path[index + 1], exportThetaAsDeg)
         path[index][2] = angle
 
         if (index == len(path) - 2): 
             path[index][2] = 0.0
             path[index + 1][2] = 0.0
         
-        path[index][3] *= (12/127)
+        temporaryLinears.insert(index, util.calculateLinVelocity(path[index][3], 36/48, 3.25))
+
+        if (exportVoltageUnits == False): path[index][3] = util.calculateLinVelocity(path[index][3], 36/48, 3.25)
 
     for index in range(len(path) - 1):
-        curvature = calculateCurvature(path[index], path[index + 1], path[index][2])
+        curvature = util.calculateCurvature(path[index], path[index + 1], path[index][2])
         if (curvature == -999):
             path[index].append(0)
         
+        temporaryAngulars.insert(index, path[index][3] * curvature)
         path[index].append(path[index][3] * curvature)
     
     pprint(path)
 
 def exportPath():
+    # im lazy sorry
     with open(pathToExports, 'w') as file:
-        for row in path:
-            line = ', '.join(map(str, row))
+        if (exportFormat == True):
+            file.write('time, x, y, theta, lin_vel, ang_vel' + '\n')
+            for row in pointsFormatted:
+                line = ', '.join(f"{num:.3f}" for num in row)
+                file.write(line + ',' + '\n')
+        else:
+            file.write('x, y, theta, lin_vel, ang_vel' + '\n')
+            for row in path:
+                line = ', '.join(f"{num:.3f}" for num in row)
+                file.write(line + '\n')
 
-            file.write(line + '\n')
+main = PathTranslator(\
+    "imaTestFile", 
+    [
+        False,
+        "linearVelocity"
+    ], 
+    [
+        3.25,
+        36/48
+    ]
+)
+main.selectFile("kendricklamar2")
+main.translatePath(True, True)
+main.downloadFile()
 
-translate()
-translateToRamsete()
-exportPath()
+currentPath = main.getPath()
+odomSpeeds = main.getOdomSpeeds()
+
+# translate()
+# translateToRamsete()
+# calculatePathTime(path)
+# exportPath()
+
+def simulateOdometry(initialPose):
+
+    currentX, currentY, currentTheta = initialPose
+    odometryData = [(currentX, currentY, currentTheta)]
+
+    previousTime = 0.0
+
+    for i in range (len(odomSpeeds)):
+        currentTime = currentPath[i][0]
+        xVelocity, yVelocity, thetaVelocity = odomSpeeds[i]
+        deltaTime = currentTime - previousTime
+
+        # print(f"xVel: {}, yVel: {}, ")
+
+        currentX += xVelocity * deltaTime
+        currentY += yVelocity * deltaTime
+        currentTheta += thetaVelocity * deltaTime
+
+        odometryData.append((currentX, currentY, currentTheta))
+
+        previousTime = currentTime
+    
+    return odometryData
+
+
+# def simulate_odometry(initial_pose):
+#     """
+#     Simulates odometry coordinates for a differential drive robot.
+    
+#     Args:
+#         linear_velocities (list of float): Linear velocities (m/s).
+#         angular_velocities (list of float): Angular velocities (rad/s).
+#         time_intervals (list of float): Time intervals between measurements (s).
+#         initial_pose (tuple): Initial pose of the robot as (x, y, theta) in meters and radians.
+        
+#     Returns:
+#         list of tuple: A list of (time, x, y, theta) tuples representing the robot's pose over time.
+#     """
+#     # Initialize variables
+#     x, y, theta = initial_pose
+#     odometry_data = [(0.0, x, y, theta)]  # Start with the initial pose
+
+#     previousTime = 0.0
+    
+#     # Simulate odometry updates
+#     for i in range(len(currentPath)):
+
+#         currentTime, _, _, _, linearVelocity, angularVelocity = currentPath[i]
+#         deltaTime = (currentTime - previousTime)
+
+#         if (angularVelocity == 0):
+#             radius = 0
+#         else:
+#             radius = linearVelocity / angularVelocity
+
+#             deltaTheta = angularVelocity * deltaTime
+
+#             nextTheta = theta + deltaTheta
+
+#             centerX = x - radius * math.sin(theta) 
+#             centerY = y + radius * math.cos(theta)
+
+#             # nextX = centerX + radius * math.cos(nextTheta)
+#             # nextY = centerY + radius * math.sin(nextTheta)
+
+#             previousTime = currentTime
+
+#             x = centerX + radius * math.cos(deltaTheta)
+#             y = centerY + radius * math.sin(deltaTheta)
+#             theta += deltaTheta
+    
+#         # Append new pose to odometry data
+#         odometry_data.append((currentTime, x, y, theta))
+    
+#     return odometry_data
+
+
+# # print("Exported to: ", pathToExports + "\\" + exportName)
+initial_pose = (63.233, 0.362, 4.188)
+
+# Simulate odometry
+odometry = simulateOdometry(initial_pose)
+
+# Print results
+# Extract data for plotting
+x_coords = [pose[0] for pose in odometry]
+y_coords = [pose[1] for pose in odometry]
+
+#Plot the trajectory
+plt.figure(figsize=(8, 6))
+plt.plot(x_coords, y_coords, marker='o', label="Robot Path")
+plt.title("Robot Trajectory Using Odometry")
+plt.xlabel("X Position (m)")
+plt.ylabel("Y Position (m)")
+plt.grid(True)
+plt.legend()
+plt.axis([-72, 72, -72, 72])
+#plt.axis('equal')  # Keep the aspect ratio equal for better visualization
+plt.show()
